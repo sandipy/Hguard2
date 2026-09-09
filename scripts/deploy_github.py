@@ -37,6 +37,13 @@ def main():
     # 2. Package offline zip
     package_offline_zip()
     
+    # 2b. GitHub Pages helpers (.nojekyll and 404.html)
+    with open('dist/.nojekyll', 'w') as f:
+        f.write('')
+    import shutil
+    if os.path.exists('dist/index.html'):
+        shutil.copyfile('dist/index.html', 'dist/404.html')
+    
     # 3. Ensure git repo at root
     if not os.path.exists(".git"):
         run(["git", "init"])
