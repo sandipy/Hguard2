@@ -1,0 +1,12 @@
+HGUARD OFFLINE SURVEILLANCE PACKAGE
+===================================
+
+1. Double click index.html in modern Chrome/Edge/Safari/Firefox.
+2. Or run a simple local web server in this directory:
+   python3 -m http.server 8080
+   or
+   npx serve .
+
+3. Open http://localhost:8080 in your browser.
+
+All features (3-Camera streams, Multi-view 1-screen monitor, Battery 80% guard, Eco-Cool blackout, Motion detection, Encrypted logs) run offline in your browser!
