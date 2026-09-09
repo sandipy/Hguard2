@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/* Senior-friendly crisp rectangular UI with 2px corners - Strictly NO pill buttons */
+button, 
+input, 
+select, 
+textarea,
+.btn,
+.badge-rect,
+.rounded-full,
+.rounded-3xl,
+.rounded-2xl,
+.rounded-xl,
+.rounded-lg,
+.rounded-md {
+  border-radius: 2px !important;
+}
+
+/* Ensure status indicator dots (ping dots) can stay circular when sized <= 12px */
+.animate-ping,
+span.rounded-full.w-2,
+span.rounded-full.w-2\.5,
+span.rounded-full.w-3,
+span.rounded-full.w-3\.5 {
+  border-radius: 9999px !important;
+}
