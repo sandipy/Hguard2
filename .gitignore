@@ -8,3 +8,5 @@ coverage/
 !.env.example
 .wrangler/
 _worker.bundle
+*.zip
+__pycache__/
