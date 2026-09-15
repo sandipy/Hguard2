@@ -1,0 +1,9 @@
+{
+  "name": "HGuard Home Monitor",
+  "description": "Senior-friendly home surveillance app supporting multi-camera monitoring, remote screen wake, direct share links, battery protection, and streamlined controls.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
