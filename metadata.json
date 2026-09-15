@@ -1,0 +1,12 @@
+{
+  "name": "HGuard Home Monitor",
+  "description": "Senior-friendly home surveillance app supporting up to 6 cameras, 3 concurrent viewers, visual animation demo, step-by-step setup guide, 80% battery protection, and Google Drive cloud backup.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
+
