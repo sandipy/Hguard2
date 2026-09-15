@@ -48,10 +48,12 @@ import { ShareModal } from './components/ShareModal';
 import { PairingQRModal } from './components/PairingQRModal';
 import { PairingQRScannerModal } from './components/PairingQRScannerModal';
 import { SeniorQuickGuideModal } from './components/SeniorQuickGuideModal';
+import { HeartbeatStatusModal } from './components/HeartbeatStatusModal';
 import { BatteryService } from './utils/batteryService';
 import { encryptData } from './utils/crypto';
 import { speakSeniorVoice, playEmergencyAlarmSiren } from './utils/soundAlerts';
 import { globalStreamChannel } from './utils/streamChannel';
+import { globalHeartbeatService } from './utils/heartbeatService';
 
 const DEFAULT_SETTINGS: AppSettings = {
   motionSensitivity: 'medium',
@@ -212,6 +214,8 @@ export default function App() {
   const [isPairingQrOpen, setIsPairingQrOpen] = useState(false);
   const [selectedPairingSlot, setSelectedPairingSlot] = useState<CameraSlot>('cam1');
   const [isPairingScannerOpen, setIsPairingScannerOpen] = useState(false);
+  const [isHeartbeatModalOpen, setIsHeartbeatModalOpen] = useState(false);
+  const [offlineCamerasCount, setOfflineCamerasCount] = useState(0);
   const [pairingToast, setPairingToast] = useState<string | null>(null);
   const [unpluggedWarning, setUnpluggedWarning] = useState<{
     isUnpluggedLong: boolean;
@@ -517,6 +521,23 @@ export default function App() {
       return updated;
     });
   }, []);
+
+  // Network Heartbeat Checker: Logs 'Offline' event if camera fails to transmit for >5 minutes
+  useEffect(() => {
+    const unsubOffline = globalHeartbeatService.onOfflineEvent((evt) => {
+      handleNewSecurityEvent(evt);
+    });
+
+    const unsubHb = globalHeartbeatService.onHeartbeatUpdate((states) => {
+      const count = Object.values(states).filter((s) => s.status === 'offline').length;
+      setOfflineCamerasCount(count);
+    });
+
+    return () => {
+      unsubOffline();
+      unsubHb();
+    };
+  }, [handleNewSecurityEvent]);
 
   // 72-Hour Continuous Charging: Automatic Deep Discharge Cycle Reminder in Event Log
   useEffect(() => {
@@ -885,6 +906,8 @@ export default function App() {
         }}
         onOpenPairingScanner={() => setIsPairingScannerOpen(true)}
         unpluggedWarning={unpluggedWarning}
+        offlineCamerasCount={offlineCamerasCount}
+        onOpenHeartbeatChecker={() => setIsHeartbeatModalOpen(true)}
       />
 
       {/* VOICE SOS EMERGENCY STATUS & CONTROLS STRIP */}
@@ -1572,6 +1595,13 @@ export default function App() {
         onTriggerSOS={() => {
           speakSeniorVoice('Help is called. Alerting your family right now.');
         }}
+      />
+
+      {/* NETWORK HEARTBEAT CHECKER MODAL */}
+      <HeartbeatStatusModal
+        isOpen={isHeartbeatModalOpen}
+        onClose={() => setIsHeartbeatModalOpen(false)}
+        onOpenEventLog={() => setIsEventsOpen(true)}
       />
 
       {/* PAIRING STATUS TOAST NOTIFICATION */}

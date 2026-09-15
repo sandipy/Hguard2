@@ -15,6 +15,9 @@ import {
   CheckCircle2,
   Eye,
   FileCheck,
+  WifiOff,
+  Radio,
+  Filter,
 } from 'lucide-react';
 import { SecurityEvent } from '../types';
 import { decryptData } from '../utils/crypto';
@@ -42,6 +45,7 @@ export const EventLogModal: React.FC<EventLogModalProps> = ({
   const [decryptedSnapshots, setDecryptedSnapshots] = useState<{ [id: string]: string }>({});
   const [decryptError, setDecryptError] = useState<string | null>(null);
   const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'offline' | 'motion' | 'battery'>('all');
 
   if (!isOpen) return null;
 
@@ -204,100 +208,197 @@ export const EventLogModal: React.FC<EventLogModalProps> = ({
           </div>
         )}
 
+        {/* Filter Bar */}
+        <div className="px-5 sm:px-6 py-2.5 bg-slate-950/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <Filter className="w-3.5 h-3.5" />
+            <span className="font-bold uppercase tracking-wider text-[11px]">Filter Log:</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setSelectedFilter('all')}
+              className={`px-2.5 py-1 rounded-[2px] font-bold text-xs transition ${
+                selectedFilter === 'all'
+                  ? 'bg-cyan-600 text-slate-950 font-black'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              All Events ({events.length})
+            </button>
+            <button
+              onClick={() => setSelectedFilter('offline')}
+              className={`px-2.5 py-1 rounded-[2px] font-bold text-xs flex items-center gap-1 transition ${
+                selectedFilter === 'offline'
+                  ? 'bg-red-600 text-white font-black'
+                  : 'bg-slate-800 text-red-400 hover:bg-slate-700'
+              }`}
+            >
+              <WifiOff className="w-3 h-3" />
+              <span>Offline ({events.filter(e => e.eventType === 'offline' || e.eventType === 'camera_offline').length})</span>
+            </button>
+            <button
+              onClick={() => setSelectedFilter('motion')}
+              className={`px-2.5 py-1 rounded-[2px] font-bold text-xs transition ${
+                selectedFilter === 'motion'
+                  ? 'bg-amber-500 text-slate-950 font-black'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              Motion &amp; AI
+            </button>
+            <button
+              onClick={() => setSelectedFilter('battery')}
+              className={`px-2.5 py-1 rounded-[2px] font-bold text-xs transition ${
+                selectedFilter === 'battery'
+                  ? 'bg-emerald-600 text-slate-950 font-black'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              Battery Health
+            </button>
+          </div>
+        </div>
+
         {/* Events List Body */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 flex flex-col gap-4">
-          {events.length === 0 ? (
-            <div className="py-16 text-center flex flex-col items-center gap-4 text-slate-400">
-              <FileCheck className="w-16 h-16 text-slate-600" />
-              <div className="text-2xl font-bold text-slate-300">No Motion Events Detected Yet</div>
-              <p className="text-base max-w-md">
-                When the camera detects movement, it automatically encrypts the snapshot with AES-256 and saves it here.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {events.map((evt) => {
-                const dateObj = new Date(evt.timestamp);
-                const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const dateStr = dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-                const snapshotUrl = decryptedSnapshots[evt.id] || evt.decryptedSnapshot;
+          {(() => {
+            const filteredEvents = events.filter((evt) => {
+              if (selectedFilter === 'offline') return evt.eventType === 'offline' || evt.eventType === 'camera_offline';
+              if (selectedFilter === 'battery') return evt.eventType === 'battery_health';
+              if (selectedFilter === 'motion') return evt.eventType !== 'battery_health' && evt.eventType !== 'offline' && evt.eventType !== 'camera_offline';
+              return true;
+            });
 
-                return (
-                  <div
-                    key={evt.id}
-                    className="bg-slate-950 border-2 border-slate-800 hover:border-slate-600 rounded-2xl p-4 flex flex-col gap-3 transition shadow"
-                  >
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <div className="flex items-center gap-2 text-amber-400 font-bold text-base">
-                        <Clock className="w-5 h-5" />
-                        <span>{timeStr}</span>
-                        <span className="text-xs text-slate-400">({dateStr})</span>
-                      </div>
-                      {evt.eventType === 'battery_health' ? (
-                        <span className="px-2.5 py-1 bg-amber-950 border border-amber-500/70 text-amber-300 rounded-lg text-xs font-black flex items-center gap-1.5 animate-pulse">
-                          <BatteryCharging className="w-3.5 h-3.5" />
-                          72h Deep Discharge Cycle
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 bg-red-950 border border-red-500/50 text-red-300 rounded-lg text-xs font-black">
-                          Motion: {evt.motionIntensity}%
-                        </span>
-                      )}
-                    </div>
+            if (filteredEvents.length === 0) {
+              return (
+                <div className="py-16 text-center flex flex-col items-center gap-4 text-slate-400">
+                  <FileCheck className="w-16 h-16 text-slate-600" />
+                  <div className="text-2xl font-bold text-slate-300">No Events Found</div>
+                  <p className="text-base max-w-md">
+                    {selectedFilter === 'offline'
+                      ? 'All camera devices are healthy and transmitting heartbeats normally.'
+                      : 'No security events logged under this filter category.'}
+                  </p>
+                </div>
+              );
+            }
 
-                    {/* Snapshot Container */}
-                    <div className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
-                      {isUnlocked && snapshotUrl ? (
-                        <img
-                          src={snapshotUrl}
-                          alt="Motion Event Snapshot"
-                          className="w-full h-full object-cover cursor-pointer hover:scale-105 transition"
-                          onClick={() => setSelectedSnapshot(snapshotUrl)}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center gap-2 p-4 text-center">
-                          <Lock className="w-10 h-10 text-slate-600" />
-                          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                            Encrypted with AES-256
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredEvents.map((evt) => {
+                  const dateObj = new Date(evt.timestamp);
+                  const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  const dateStr = dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+                  const snapshotUrl = decryptedSnapshots[evt.id] || evt.decryptedSnapshot;
+                  const isOfflineEvt = evt.eventType === 'offline' || evt.eventType === 'camera_offline';
+
+                  return (
+                    <div
+                      key={evt.id}
+                      className={`bg-slate-950 border-2 rounded-2xl p-4 flex flex-col gap-3 transition shadow ${
+                        isOfflineEvt ? 'border-red-500/80 bg-red-950/20' : 'border-slate-800 hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div className="flex items-center gap-2 text-amber-400 font-bold text-base">
+                          <Clock className="w-5 h-5" />
+                          <span>{timeStr}</span>
+                          <span className="text-xs text-slate-400">({dateStr})</span>
+                        </div>
+                        {isOfflineEvt ? (
+                          <span className="px-2.5 py-1 bg-red-600 text-white rounded-lg text-xs font-black flex items-center gap-1.5 animate-pulse border border-red-400">
+                            <WifiOff className="w-3.5 h-3.5" />
+                            CAMERA OFFLINE (&gt;5m)
                           </span>
-                          <button
-                            id={`decrypt-item-${evt.id}`}
-                            onClick={() => handleUnlockAndDecrypt()}
-                            className="mt-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold rounded-lg border border-slate-700"
-                          >
-                            Click to Decrypt
-                          </button>
+                        ) : evt.eventType === 'battery_health' ? (
+                          <span className="px-2.5 py-1 bg-amber-950 border border-amber-500/70 text-amber-300 rounded-lg text-xs font-black flex items-center gap-1.5 animate-pulse">
+                            <BatteryCharging className="w-3.5 h-3.5" />
+                            72h Deep Discharge Cycle
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-red-950 border border-red-500/50 text-red-300 rounded-lg text-xs font-black">
+                            Motion: {evt.motionIntensity}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Camera Slot and Device Label */}
+                      <div className="flex items-center justify-between text-xs text-slate-300 font-bold px-1">
+                        <span className="text-white flex items-center gap-1.5">
+                          {isOfflineEvt && <AlertTriangle className="w-3.5 h-3.5 text-red-400" />}
+                          {evt.cameraName || `Camera (${evt.cameraId.toUpperCase()})`}
+                        </span>
+                        <span className="font-mono text-cyan-400 uppercase bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                          {evt.cameraId.toUpperCase()}
+                        </span>
+                      </div>
+
+                      {/* Snapshot / Offline Notice Container */}
+                      <div className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center border border-slate-800">
+                        {isOfflineEvt ? (
+                          <div className="flex flex-col items-center justify-center p-4 text-center bg-red-950/40 w-full h-full">
+                            <div className="w-12 h-12 rounded-full bg-red-900/60 border border-red-500 flex items-center justify-center text-red-300 mb-2">
+                              <WifiOff className="w-6 h-6 animate-pulse" />
+                            </div>
+                            <div className="text-sm font-black text-red-200 uppercase">Heartbeat Lost</div>
+                            <div className="text-xs text-red-300 mt-1 max-w-xs">
+                              Camera device failed to transmit data for &gt;5 minutes.
+                            </div>
+                          </div>
+                        ) : isUnlocked && snapshotUrl ? (
+                          <img
+                            src={snapshotUrl}
+                            alt="Motion Event Snapshot"
+                            className="w-full h-full object-cover cursor-pointer hover:scale-105 transition"
+                            onClick={() => setSelectedSnapshot(snapshotUrl)}
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center gap-2 p-4 text-center">
+                            <Lock className="w-10 h-10 text-slate-600" />
+                            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+                              Encrypted with AES-256
+                            </span>
+                            <button
+                              id={`decrypt-item-${evt.id}`}
+                              onClick={() => handleUnlockAndDecrypt()}
+                              className="mt-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold rounded-lg border border-slate-700"
+                            >
+                              Click to Decrypt
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Notes / Health Recommendation */}
+                      {evt.notes && (
+                        <div className={`p-2.5 rounded-lg text-xs leading-relaxed border ${
+                          isOfflineEvt
+                            ? 'bg-red-950/60 border-red-500/60 text-red-200'
+                            : evt.eventType === 'battery_health'
+                            ? 'bg-amber-950/40 border-amber-500/50 text-amber-200'
+                            : 'bg-slate-900/80 border-slate-800 text-slate-300'
+                        }`}>
+                          {evt.notes}
                         </div>
                       )}
-                    </div>
 
-                    {/* Notes / Health Recommendation */}
-                    {evt.notes && (
-                      <div className={`p-2.5 rounded-lg text-xs leading-relaxed border ${
-                        evt.eventType === 'battery_health'
-                          ? 'bg-amber-950/40 border-amber-500/50 text-amber-200'
-                          : 'bg-slate-900/80 border-slate-800 text-slate-300'
-                      }`}>
-                        {evt.notes}
-                      </div>
-                    )}
-
-                    {/* Event Metadata (Battery & Thermal info at moment of event) */}
-                    <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                      <div className="flex items-center gap-1.5">
-                        <Battery className="w-4 h-4 text-emerald-400" />
-                        <span>Battery at event: {evt.batteryLevel}%</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 capitalize">
-                        <Flame className="w-4 h-4 text-cyan-400" />
-                        <span>Temp: {evt.thermalState}</span>
+                      {/* Event Metadata */}
+                      <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                        <div className="flex items-center gap-1.5">
+                          <Battery className="w-4 h-4 text-emerald-400" />
+                          <span>{isOfflineEvt ? 'Signal: Disconnected' : `Battery: ${evt.batteryLevel}%`}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 capitalize">
+                          <Flame className="w-4 h-4 text-cyan-400" />
+                          <span>Temp: {evt.thermalState}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Modal Footer (Offline Export / Import / Clear) */}

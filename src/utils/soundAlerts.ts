@@ -196,6 +196,32 @@ export function playDoorbellChime(): void {
 }
 
 /**
+ * Play an audible warning tone when a camera loses heartbeat/goes offline
+ */
+export function playOfflineWarningTone(): void {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+    // Two descending pulses: 750Hz -> 450Hz
+    [0, 0.35].forEach((start) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(750, now + start);
+      osc.frequency.exponentialRampToValueAtTime(450, now + start + 0.25);
+      gain.gain.setValueAtTime(0.35, now + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + start + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + 0.3);
+    });
+  } catch (e) {
+    console.warn('Offline warning tone error:', e);
+  }
+}
+
+/**
  * Play chime and speak announcement clearly on camera speaker
  */
 export function speakAnnouncementOnSpeaker(announcementText: string): void {

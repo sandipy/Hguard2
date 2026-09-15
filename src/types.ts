@@ -27,7 +27,9 @@ export type AIObjectType =
   | 'sound_surge'
   | 'alert_cleared'
   | 'wandering'
-  | 'inactivity';
+  | 'inactivity'
+  | 'offline'
+  | 'camera_offline';
 
 export interface AIFrameBox {
   label: string;
@@ -186,6 +188,21 @@ export interface CameraStatusBroadcast {
   isPitchDark?: boolean;
   autoNightVisionTriggered?: boolean;
   autoTorchTriggered?: boolean;
+  // Network Heartbeat Telemetry
+  lastHeartbeat?: number; // epoch ms of last received heartbeat/broadcast
+  isHeartbeatActive?: boolean;
+  heartbeatStatus?: 'online' | 'warning' | 'offline';
+  secondsSinceLastHeartbeat?: number;
+}
+
+export interface CameraHeartbeatInfo {
+  cameraId: CameraSlot;
+  cameraName: string;
+  lastSeen: number; // epoch ms
+  secondsSinceLastSeen: number;
+  status: 'online' | 'warning' | 'offline'; // online (<60s), warning (1m-5m), offline (>5m)
+  isOfflineEventLogged: boolean;
+  offlineSince?: number | null;
 }
 
 export interface StreamConnectionState {

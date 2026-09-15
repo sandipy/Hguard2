@@ -25,6 +25,8 @@ import {
   Smartphone,
   Eye,
   LogOut,
+  WifiOff,
+  Radio,
 } from 'lucide-react';
 import { AppMode, BatteryState, ThermalStatus, UserProfile } from '../types';
 import { BatteryService } from '../utils/batteryService';
@@ -56,6 +58,8 @@ interface SeniorTopNavProps {
   onToggleEcoCool?: () => void;
   isEcoCoolActive?: boolean;
   unpluggedWarning?: UnpluggedAlertInfo | null;
+  offlineCamerasCount?: number;
+  onOpenHeartbeatChecker?: () => void;
 }
 
 export const SeniorTopNav: React.FC<SeniorTopNavProps> = ({
@@ -79,6 +83,8 @@ export const SeniorTopNav: React.FC<SeniorTopNavProps> = ({
   onToggleEcoCool,
   isEcoCoolActive,
   unpluggedWarning,
+  offlineCamerasCount = 0,
+  onOpenHeartbeatChecker,
 }) => {
   const [showPowerHelpModal, setShowPowerHelpModal] = useState(false);
   const [showHelpMenu, setShowHelpMenu] = useState(false);
@@ -121,6 +127,20 @@ export const SeniorTopNav: React.FC<SeniorTopNavProps> = ({
 
         {/* Center Hardware & Vital Badges: Unified, compact, responsive pills */}
         <div className="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink min-w-0">
+          {/* CAMERA OFFLINE WARNING (>5m SILENT) */}
+          {offlineCamerasCount > 0 && onOpenHeartbeatChecker && (
+            <button
+              id="nav-offline-cameras-badge"
+              onClick={onOpenHeartbeatChecker}
+              className="flex items-center gap-1 bg-red-600 hover:bg-red-500 border-2 border-red-300 px-2 sm:px-2.5 py-1 rounded-[2px] text-xs font-black text-white shadow-lg animate-pulse transition cursor-pointer shrink-0"
+              title={`${offlineCamerasCount} camera(s) silent for >5 minutes. Click to inspect heartbeat.`}
+            >
+              <WifiOff className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">OFFLINE:</span>
+              <span>{offlineCamerasCount} CAM{offlineCamerasCount > 1 ? 'S' : ''}</span>
+            </button>
+          )}
+
           {/* UNPLUGGED WARNING (High priority only when triggered) */}
           {isUnpluggedWarning && (
             <button
@@ -252,6 +272,28 @@ export const SeniorTopNav: React.FC<SeniorTopNavProps> = ({
                   <QrCode className="w-3.5 h-3.5" />
                   <span className="hidden md:inline">+ Add Camera</span>
                   <span className="hidden xs:inline md:hidden">+ Cam</span>
+                </button>
+              )}
+
+              {/* Network Heartbeat Checker Button */}
+              {onOpenHeartbeatChecker && (
+                <button
+                  id="nav-heartbeat-btn"
+                  onClick={onOpenHeartbeatChecker}
+                  className={`hidden sm:flex items-center gap-1 border px-2 sm:px-2.5 py-1.5 rounded-[2px] font-bold text-xs transition shrink-0 ${
+                    offlineCamerasCount > 0
+                      ? 'bg-red-600 text-white border-red-400 animate-pulse'
+                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-cyan-300'
+                  }`}
+                  title="Network Heartbeat Checker: 5-minute timeout tracking"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Heartbeat</span>
+                  {offlineCamerasCount > 0 && (
+                    <span className="bg-red-950 text-red-200 px-1 py-0.2 rounded-[2px] text-[10px] font-black">
+                      {offlineCamerasCount}
+                    </span>
+                  )}
                 </button>
               )}
 

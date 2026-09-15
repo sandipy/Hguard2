@@ -55,6 +55,7 @@ import {
 import { BatteryService } from '../utils/batteryService';
 import { SeniorMonitorService } from '../utils/seniorMonitorService';
 import { globalStreamChannel } from '../utils/streamChannel';
+import { globalHeartbeatService } from '../utils/heartbeatService';
 
 interface CameraViewProps {
   settings: AppSettings;
@@ -842,8 +843,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
           isPitchDark,
           autoNightVisionTriggered: autoNightTriggered,
           autoTorchTriggered: autoTorchTriggered,
+          lastHeartbeat: Date.now(),
+          isHeartbeatActive: true,
+          heartbeatStatus: 'online',
+          secondsSinceLastHeartbeat: 0,
         };
 
+        globalHeartbeatService.recordCameraActivity(selectedSlot, CAMERA_NAMES[selectedSlot], Date.now());
         globalStreamChannel.broadcastCameraStatus(broadcast);
       }
 
@@ -869,6 +875,25 @@ export const CameraView: React.FC<CameraViewProps> = ({
     onNewSecurityEvent,
     setThermal,
   ]);
+
+  // Resilient background network heartbeat transmitter (pings every 4 seconds)
+  useEffect(() => {
+    if (!isSurveillanceActive) return;
+
+    const sendHeartbeat = () => {
+      globalHeartbeatService.recordCameraActivity(selectedSlot, CAMERA_NAMES[selectedSlot], Date.now());
+      globalStreamChannel.sendRemoteCommand('HEARTBEAT_PING', selectedSlot, {
+        cameraName: CAMERA_NAMES[selectedSlot],
+        timestamp: Date.now(),
+        batteryLevel: battery.level,
+        isCharging: battery.charging,
+      });
+    };
+
+    sendHeartbeat();
+    const timer = setInterval(sendHeartbeat, 4000);
+    return () => clearInterval(timer);
+  }, [isSurveillanceActive, selectedSlot, battery.level, battery.charging]);
 
   // Clean up on unmount
   useEffect(() => {

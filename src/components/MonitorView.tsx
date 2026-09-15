@@ -45,6 +45,7 @@ import {
   Sun,
   Moon,
   QrCode,
+  WifiOff,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -55,6 +56,7 @@ import {
   SecurityEvent,
   ThermalStatus,
   ViewerStation,
+  CameraHeartbeatInfo,
 } from '../types';
 import { globalStreamChannel, StreamConnectionState } from '../utils/streamChannel';
 import {
@@ -67,6 +69,8 @@ import {
 } from '../utils/soundAlerts';
 import { encryptData } from '../utils/crypto';
 import { AnnouncementModal } from './AnnouncementModal';
+import { HeartbeatStatusModal } from './HeartbeatStatusModal';
+import { globalHeartbeatService, HeartbeatOfflineAlert } from '../utils/heartbeatService';
 
 interface MonitorViewProps {
   settings: AppSettings;
@@ -153,8 +157,31 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Network Heartbeat Checker State (5-minute timeout tracking)
+  const [heartbeatStates, setHeartbeatStates] = useState<Record<CameraSlot, CameraHeartbeatInfo>>(() =>
+    globalHeartbeatService.getAllHeartbeatInfos()
+  );
+  const [activeOfflineToast, setActiveOfflineToast] = useState<HeartbeatOfflineAlert | null>(null);
+  const [isHeartbeatModalOpen, setIsHeartbeatModalOpen] = useState(false);
+
   // Simulation frame clock for offline camera demo
   const [simClock, setSimClock] = useState(0);
+
+  // Subscribe to heartbeat updates and offline alert toasts
+  useEffect(() => {
+    const unsubHb = globalHeartbeatService.onHeartbeatUpdate((states) => {
+      setHeartbeatStates(states);
+    });
+
+    const unsubAlert = globalHeartbeatService.onOfflineAlertToast((alert) => {
+      setActiveOfflineToast(alert);
+    });
+
+    return () => {
+      unsubHb();
+      unsubAlert();
+    };
+  }, []);
 
   useEffect(() => {
     const unsubConn = globalStreamChannel.onConnectionChange((st) => {
@@ -206,7 +233,11 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
         score: evt.motionIntensity,
         type: evt.eventType,
       });
-      if (evt.eventType === 'fall_detected' || evt.eventType === 'voice_help' || evt.eventType === 'sound_surge') {
+      if (evt.eventType === 'offline' || evt.eventType === 'camera_offline') {
+        if (settings.seniorVoiceAlerts) {
+          speakSeniorVoice(`Warning! Camera ${evt.cameraName} is offline. No heartbeat data for over 5 minutes.`);
+        }
+      } else if (evt.eventType === 'fall_detected' || evt.eventType === 'voice_help' || evt.eventType === 'sound_surge') {
         playEmergencyAlarmSiren(2);
         if (settings.seniorVoiceAlerts) {
           const spoken = evt.eventType === 'fall_detected'
@@ -639,6 +670,23 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
 
           {/* Layout & Control Buttons */}
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+            <button
+              id="monitor-heartbeat-btn"
+              onClick={() => setIsHeartbeatModalOpen(true)}
+              className={`px-3 py-1.5 rounded-[2px] font-bold text-xs flex items-center gap-1.5 border transition ${
+                (Object.values(heartbeatStates) as CameraHeartbeatInfo[]).some((h) => h.status === 'offline')
+                  ? 'bg-red-600 hover:bg-red-500 text-white border-red-400 animate-pulse shadow'
+                  : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700'
+              }`}
+              title="Network Heartbeat Checker: 5m silence threshold"
+            >
+              <Radio className="w-3.5 h-3.5" />
+              <span>
+                {(Object.values(heartbeatStates) as CameraHeartbeatInfo[]).some((h) => h.status === 'offline')
+                  ? `OFFLINE: ${(Object.values(heartbeatStates) as CameraHeartbeatInfo[]).filter((h) => h.status === 'offline').length} CAM`
+                  : 'HEARTBEAT (5M)'}
+              </span>
+            </button>
             {onOpenPairingQR && (
               <button
                 id="viewer-pair-camera-qr-btn"
@@ -770,6 +818,58 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
         </div>
       </div>
 
+      {/* EMERGENCY OFFLINE NOTIFICATION BANNER (>5M SILENCE) */}
+      {(activeOfflineToast || (Object.values(heartbeatStates) as CameraHeartbeatInfo[]).some((h) => h.status === 'offline')) && (
+        <div
+          id="monitor-offline-emergency-banner"
+          className="bg-red-950 border-2 border-red-500 rounded-[2px] p-3 sm:p-4 text-white shadow-xl animate-pulse flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 bg-red-600 rounded-[2px] text-white shrink-0 shadow">
+              <WifiOff className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-black text-sm text-red-200 tracking-wide uppercase">
+                  ⚠️ CAMERA DEVICE OFFLINE (&gt;5 MINUTE SILENCE)
+                </span>
+                <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-[2px]">
+                  CRITICAL
+                </span>
+              </div>
+              <p className="text-xs text-red-300 font-medium mt-0.5">
+                {activeOfflineToast
+                  ? `Camera "${activeOfflineToast.cameraName}" has stopped transmitting for over ${Math.floor(activeOfflineToast.silentDurationMs / 60000)} minutes.`
+                  : `${(Object.values(heartbeatStates) as CameraHeartbeatInfo[]).filter((h) => h.status === 'offline').map((h) => h.cameraName).join(', ')} failed to transmit data for >5 minutes.`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+            <button
+              onClick={() => setIsHeartbeatModalOpen(true)}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-[2px] shadow transition"
+            >
+              Heartbeat Diagnostics
+            </button>
+            <button
+              onClick={onOpenEvents}
+              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-850 text-slate-200 text-xs font-bold rounded-[2px] border border-red-400 transition"
+            >
+              Event Log
+            </button>
+            {activeOfflineToast && (
+              <button
+                onClick={() => setActiveOfflineToast(null)}
+                className="p-1.5 text-red-300 hover:text-white rounded-[2px] hover:bg-red-900 transition"
+                title="Dismiss Banner"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 6 CAMERAS SELECTOR TABS */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {CAMERA_SLOTS.map((slot) => {
@@ -777,6 +877,8 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
           const isSelected = activeCameraId === slot.id;
           const battery = cam?.battery || { level: 80, charging: true, supported: true };
           const thermal = cam?.thermal || 'normal';
+          const hb = heartbeatStates[slot.id];
+          const isSlotOffline = hb?.status === 'offline';
 
           return (
             <button
@@ -785,29 +887,42 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                 setActiveCameraId(slot.id);
               }}
               className={`p-2.5 rounded-[2px] border text-left transition flex flex-col justify-between gap-1 ${
-                isSelected
+                isSlotOffline
+                  ? 'bg-red-950/60 border-red-500 shadow-md animate-pulse'
+                  : isSelected
                   ? 'bg-slate-800 border-amber-400 shadow'
                   : 'bg-slate-900 border-slate-800 hover:border-slate-700'
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-xs flex items-center gap-1">
-                  <Camera className="w-3 h-3 text-amber-400" />
+                <span className={`font-bold text-xs flex items-center gap-1 ${isSlotOffline ? 'text-red-300 font-black' : 'text-white'}`}>
+                  {isSlotOffline ? <WifiOff className="w-3 h-3 text-red-400" /> : <Camera className="w-3 h-3 text-amber-400" />}
                   {slot.name}
                 </span>
-                <span className="w-1.5 h-1.5 rounded-[2px] bg-emerald-400" />
+                <span
+                  className={`w-1.5 h-1.5 rounded-[2px] ${
+                    isSlotOffline ? 'bg-red-500 animate-ping' : 'bg-emerald-400'
+                  }`}
+                  title={isSlotOffline ? 'Offline >5m' : 'Online'}
+                />
               </div>
 
-              <div className="text-[11px] text-slate-400 truncate">{slot.location}</div>
+              <div className="text-[11px] text-slate-400 truncate">
+                {isSlotOffline ? (
+                  <span className="text-red-400 font-black">OFFLINE (&gt;5m)</span>
+                ) : (
+                  slot.location
+                )}
+              </div>
 
               {/* Hardware stats */}
               <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-800">
-                <span className="flex items-center gap-0.5 font-bold text-emerald-400">
+                <span className={`flex items-center gap-0.5 font-bold ${isSlotOffline ? 'text-red-400' : 'text-emerald-400'}`}>
                   <BatteryCharging className="w-2.5 h-2.5" />
                   {battery.level}%
                 </span>
-                <span className="font-mono text-cyan-300 uppercase">
-                  {thermal === 'normal' ? 'Cool' : thermal}
+                <span className={`font-mono uppercase ${isSlotOffline ? 'text-red-300 font-black' : 'text-cyan-300'}`}>
+                  {isSlotOffline ? 'TIMEOUT' : thermal === 'normal' ? 'Cool' : thermal}
                 </span>
               </div>
             </button>
@@ -822,6 +937,8 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
           {CAMERA_SLOTS.map((slot) => {
             const cam = camerasState[slot.id];
             const isSelected = activeCameraId === slot.id;
+            const hb = heartbeatStates[slot.id];
+            const isSlotOffline = hb?.status === 'offline';
 
             return (
               <div
@@ -831,10 +948,41 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                   setViewLayout('single');
                 }}
                 className={`relative bg-slate-950 rounded-[2px] overflow-hidden border-2 cursor-pointer group transition ${
-                  isSelected ? 'border-amber-400 shadow-lg' : 'border-slate-800 hover:border-slate-600'
+                  isSlotOffline
+                    ? 'border-red-500 shadow-xl'
+                    : isSelected
+                    ? 'border-amber-400 shadow-lg'
+                    : 'border-slate-800 hover:border-slate-600'
                 }`}
               >
                 <div className="aspect-video relative flex items-center justify-center bg-slate-900 overflow-hidden">
+                  {/* OFFLINE CAMERA FULL OVERLAY (>5M SILENCE) */}
+                  {isSlotOffline && (
+                    <div className="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center border-2 border-red-500">
+                      <div className="p-2 bg-red-600 text-white rounded-[2px] mb-1.5 shadow animate-pulse">
+                        <WifiOff className="w-6 h-6" />
+                      </div>
+                      <div className="text-sm font-black text-red-200 uppercase tracking-tight">CAMERA OFFLINE (&gt;5M)</div>
+                      <div className="text-[11px] text-red-300 font-medium mt-0.5">
+                        Silent for {Math.floor((hb?.secondsSinceLastSeen || 300) / 60)}m {(hb?.secondsSinceLastSeen || 0) % 60}s
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-2.5" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => globalHeartbeatService.simulateRecovery(slot.id)}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-[10px] font-black rounded-[2px] shadow"
+                        >
+                          Reconnect
+                        </button>
+                        <button
+                          onClick={() => setIsHeartbeatModalOpen(true)}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold rounded-[2px] border border-slate-700"
+                        >
+                          Diagnostics
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {cam?.currentFrame ? (
                     <img
                       src={cam.currentFrame}
@@ -927,10 +1075,17 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                   )}
 
                   {/* Badges */}
-                  <div className="absolute top-2 left-2 bg-black/80 backdrop-blur px-2 py-0.5 rounded-[2px] text-xs font-black text-white flex items-center gap-1.5 border border-slate-700 z-10">
-                    <span className="w-1.5 h-1.5 rounded-[2px] bg-emerald-500 animate-ping" />
-                    <span>{slot.name}</span>
-                  </div>
+                  {isSlotOffline ? (
+                    <div className="absolute top-2 left-2 bg-red-700/95 backdrop-blur px-2 py-0.5 rounded-[2px] text-xs font-black text-white flex items-center gap-1.5 border border-red-400 z-10 animate-pulse">
+                      <WifiOff className="w-3.5 h-3.5" />
+                      <span>{slot.name} (OFFLINE)</span>
+                    </div>
+                  ) : (
+                    <div className="absolute top-2 left-2 bg-black/80 backdrop-blur px-2 py-0.5 rounded-[2px] text-xs font-black text-white flex items-center gap-1.5 border border-slate-700 z-10">
+                      <span className="w-1.5 h-1.5 rounded-[2px] bg-emerald-500 animate-ping" />
+                      <span>{slot.name}</span>
+                    </div>
+                  )}
 
                   <div className="absolute top-2 right-2 bg-emerald-950/90 border border-emerald-500/70 px-1.5 py-0.5 rounded-[2px] text-[10px] font-black text-emerald-300 flex items-center gap-1 z-10">
                     <Shield className="w-3 h-3 text-emerald-400" />
@@ -1047,7 +1202,46 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
       ) : (
         /* SINGLE FOCUSED CAMERA VIEW WITH 4X DIGITAL ZOOM & AI FRAME */
         <div className="flex flex-col gap-3">
-          <div className="relative bg-slate-950 rounded-[2px] overflow-hidden border-2 border-slate-700 shadow-xl min-h-[340px] sm:min-h-[440px] flex items-center justify-center">
+          <div className={`relative bg-slate-950 rounded-[2px] overflow-hidden border-2 shadow-xl min-h-[340px] sm:min-h-[440px] flex items-center justify-center ${
+            heartbeatStates[activeCameraId]?.status === 'offline'
+              ? 'border-red-500'
+              : 'border-slate-700'
+          }`}>
+            {/* OFFLINE CAMERA OVERLAY (>5M SILENCE) */}
+            {heartbeatStates[activeCameraId]?.status === 'offline' && (
+              <div className="absolute inset-0 z-30 bg-slate-950/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center border-4 border-red-500">
+                <div className="p-3 bg-red-600 text-white rounded-[2px] mb-3 shadow animate-pulse">
+                  <WifiOff className="w-10 h-10" />
+                </div>
+                <h4 className="text-xl sm:text-2xl font-black text-red-200 uppercase tracking-tight">
+                  {activeCamConfig?.name} IS OFFLINE (&gt;5M)
+                </h4>
+                <p className="text-xs sm:text-sm text-red-300 font-medium max-w-md mt-1.5">
+                  No heartbeat pings or video packets transmitted in over 5 minutes. The camera device may be disconnected, out of battery, or without WiFi.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
+                  <button
+                    onClick={() => globalHeartbeatService.simulateRecovery(activeCameraId)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs rounded-[2px] shadow transition"
+                  >
+                    Simulate Reconnection
+                  </button>
+                  <button
+                    onClick={() => setIsHeartbeatModalOpen(true)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-[2px] border border-slate-700 transition"
+                  >
+                    View Heartbeat Status
+                  </button>
+                  <button
+                    onClick={onOpenEvents}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-[2px] border border-slate-700 transition"
+                  >
+                    Check Offline Event Log
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Live Camera View with 4x Zoom transform */}
             <div
               className="w-full h-full flex items-center justify-center overflow-hidden"
@@ -1632,6 +1826,13 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
         onClose={() => setIsAnnounceModalOpen(false)}
         onSend={(msg, target) => handleSendAnnouncement(msg, target)}
         defaultTarget={announceTarget}
+      />
+
+      {/* NETWORK HEARTBEAT STATUS & 5-MINUTE SILENCE CHECKER MODAL */}
+      <HeartbeatStatusModal
+        isOpen={isHeartbeatModalOpen}
+        onClose={() => setIsHeartbeatModalOpen(false)}
+        onOpenEventLog={onOpenEvents}
       />
     </div>
   );
