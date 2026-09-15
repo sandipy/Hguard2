@@ -174,7 +174,10 @@ export interface CameraStatusBroadcast {
   timestamp: number;
   isOnline: boolean;
   battery: BatteryState;
+  batteryLevel?: number;
   thermal: ThermalStatus;
+  thermalState?: ThermalStatus;
+  isNightVision?: boolean;
   fps: number;
   currentFrame?: string;
   bandwidthMode: BandwidthMode;

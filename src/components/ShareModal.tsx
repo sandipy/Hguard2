@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import {
   Share2,
   Copy,
@@ -12,6 +13,7 @@ import {
   Link,
   Key,
   Info,
+  Maximize2,
 } from 'lucide-react';
 import { CameraSlot, ViewerStation } from '../types';
 
@@ -20,6 +22,7 @@ interface ShareModalProps {
   onClose: () => void;
   encryptionPin: string;
   userEmail: string;
+  householdRoomId?: string;
   onOpenPairingQR: (slot?: CameraSlot) => void;
 }
 
@@ -28,12 +31,14 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   onClose,
   encryptionPin,
   userEmail,
+  householdRoomId,
   onOpenPairingQR,
 }) => {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [selectedStation] = useState<ViewerStation>('viewer2');
   const [selectedCam, setSelectedCam] = useState<CameraSlot>('cam1');
-  const [activeMethod, setActiveMethod] = useState<'link' | 'qr' | 'pin'>('link');
+  const [activeMethod, setActiveMethod] = useState<'link' | 'qr' | 'pin'>('qr');
+  const [modalQrDataUrl, setModalQrDataUrl] = useState<string>('');
 
   // Handle Escape key
   useEffect(() => {
@@ -48,12 +53,48 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
   if (!isOpen) return null;
 
-  const baseUrl = window.location.origin + window.location.pathname;
-  const userParam = userEmail ? `&user=${encodeURIComponent(userEmail)}` : '';
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const currentPath = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
+  const cleanBase = `${currentOrigin}${currentPath}`;
 
-  // Direct 1-Tap Links
-  const viewerShareUrl = `${baseUrl}?role=viewer&station=${selectedStation}${userParam}&pin=${encodeURIComponent(encryptionPin || '8888')}`;
-  const cameraShareUrl = `${baseUrl}?role=camera&cam=${selectedCam}&autostart=1${userParam}&pin=${encodeURIComponent(encryptionPin || '8888')}`;
+  const buildCameraUrl = (slot: CameraSlot) => {
+    const urlObj = new URL(cleanBase);
+    urlObj.searchParams.set('role', 'camera');
+    urlObj.searchParams.set('autostart', '1');
+    urlObj.searchParams.set('cam', slot);
+    if (householdRoomId) urlObj.searchParams.set('room', householdRoomId);
+    if (encryptionPin) urlObj.searchParams.set('pin', encryptionPin);
+    if (userEmail) urlObj.searchParams.set('user', userEmail);
+    return urlObj.toString();
+  };
+
+  const buildViewerUrl = (station: ViewerStation) => {
+    const urlObj = new URL(cleanBase);
+    urlObj.searchParams.set('role', 'viewer');
+    urlObj.searchParams.set('station', station);
+    if (householdRoomId) urlObj.searchParams.set('room', householdRoomId);
+    if (encryptionPin) urlObj.searchParams.set('pin', encryptionPin);
+    if (userEmail) urlObj.searchParams.set('user', userEmail);
+    return urlObj.toString();
+  };
+
+  const cameraShareUrl = buildCameraUrl(selectedCam);
+  const viewerShareUrl = buildViewerUrl(selectedStation);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    QRCode.toDataURL(cameraShareUrl, {
+      width: 320,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#020617',
+        light: '#ffffff',
+      },
+    })
+      .then((dataUrl) => setModalQrDataUrl(dataUrl))
+      .catch((err) => console.error('Failed to generate modal QR code:', err));
+  }, [isOpen, cameraShareUrl]);
 
   const copyToClipboard = (text: string, typeKey: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -237,21 +278,64 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         {/* METHOD 2: QR CODE */}
         {activeMethod === 'qr' && (
           <div className="bg-slate-950 border border-slate-800 p-4 rounded-[2px] flex flex-col items-center text-center gap-3">
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-[2px] text-emerald-300 text-xs">
-              <strong>Best when both phones are in the same room:</strong> Point the camera of the old phone at the pairing QR code. It opens the web app pre-paired immediately.
+            <div className="w-full flex items-center justify-between text-xs">
+              <span className="text-slate-400 font-bold">Target Camera Slot:</span>
+              <select
+                value={selectedCam}
+                onChange={(e) => setSelectedCam(e.target.value as CameraSlot)}
+                className="bg-slate-900 border border-slate-700 text-emerald-400 font-bold text-xs px-2 py-1 rounded-[2px] outline-none"
+              >
+                <option value="cam1">Cam 1: Front Door</option>
+                <option value="cam2">Cam 2: Living Room</option>
+                <option value="cam3">Cam 3: Senior Bedroom</option>
+                <option value="cam4">Cam 4: Kitchen</option>
+                <option value="cam5">Cam 5: Backyard</option>
+                <option value="cam6">Cam 6: Garage</option>
+              </select>
             </div>
-            <button
-              type="button"
-              id="open-qr-display-btn"
-              onClick={() => {
-                onClose();
-                onOpenPairingQR(selectedCam);
-              }}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-xs rounded-[2px] flex items-center gap-2 transition shadow-lg"
-            >
-              <QrCode className="w-4 h-4" />
-              <span>SHOW FULLSCREEN PAIRING QR CODE</span>
-            </button>
+
+            {/* Render Real QR Code Image */}
+            <div className="p-2 bg-white rounded-[2px] shadow-xl">
+              {modalQrDataUrl ? (
+                <img
+                  src={modalQrDataUrl}
+                  alt={`Pair ${selectedCam.toUpperCase()}`}
+                  className="w-44 h-44 sm:w-48 sm:h-48 block"
+                />
+              ) : (
+                <div className="w-44 h-44 flex items-center justify-center text-slate-800 text-xs font-bold">
+                  Generating QR Code...
+                </div>
+              )}
+            </div>
+
+            <div className="text-xs text-slate-300 leading-relaxed max-w-sm">
+              Point your old smartphone camera at this QR code to connect immediately.
+            </div>
+
+            <div className="flex items-center gap-2 w-full mt-1">
+              <button
+                type="button"
+                onClick={() => copyToClipboard(cameraShareUrl, 'qr_url')}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-[2px] border border-slate-700 flex items-center justify-center gap-1.5 transition"
+              >
+                {copiedType === 'qr_url' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedType === 'qr_url' ? 'Link Copied!' : 'Copy Link'}</span>
+              </button>
+
+              <button
+                type="button"
+                id="open-qr-display-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenPairingQR(selectedCam);
+                }}
+                className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-xs rounded-[2px] flex items-center gap-1.5 transition shadow"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>Fullscreen QR</span>
+              </button>
+            </div>
           </div>
         )}
 

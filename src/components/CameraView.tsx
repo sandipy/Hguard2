@@ -43,13 +43,22 @@ export const CameraView: React.FC<CameraViewProps> = ({
   onOpenA2HSModal,
   onSwitchToViewer,
 }) => {
-  const [selectedSlot, setSelectedSlot] = useState<CameraSlot>('cam1');
+  const [selectedSlot, setSelectedSlot] = useState<CameraSlot>(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('cam');
+      if (p && ['cam1', 'cam2', 'cam3', 'cam4', 'cam5', 'cam6'].includes(p)) {
+        return p as CameraSlot;
+      }
+    }
+    return 'cam1';
+  });
   const [isStreaming, setIsStreaming] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
 
-  // Eco-Cool Screen Dimming: Enabled by default to prevent screen burn-in and heat on 24/7 plugged-in phones
-  const [ecoCoolActive, setEcoCoolActive] = useState<boolean>(() => settings.ecoCoolScreenEnabled ?? true);
-  const [autoDimSecondsLeft, setAutoDimSecondsLeft] = useState<number | null>(null);
+  // Eco-Cool Screen Dimming: Starts awake so the user can verify the camera frame, then auto-dims after 25s
+  const [ecoCoolActive, setEcoCoolActive] = useState<boolean>(false);
+  const [autoDimSecondsLeft, setAutoDimSecondsLeft] = useState<number | null>(25);
+  const [framesTransmitted, setFramesTransmitted] = useState<number>(0);
   const [keepAwakeSession, setKeepAwakeSession] = useState<boolean>(false);
   const [remoteWakeNotice, setRemoteWakeNotice] = useState<string | null>(null);
 
@@ -92,15 +101,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
-      const constraints: MediaStreamConstraints = {
+      // Try preferred HD video first
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: facingMode },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
-        audio: true,
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        audio: false, // Start without audio to prevent permission blockages on restrictive devices
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -110,7 +119,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     } catch (err: any) {
       console.warn('Primary camera init failed, attempting basic stream:', err);
       try {
-        const fallback = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const fallback = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         streamRef.current = fallback;
         if (videoRef.current) {
           videoRef.current.srcObject = fallback;
@@ -118,7 +127,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         }
         setIsStreaming(true);
       } catch (fbErr: any) {
-        setCameraError(fbErr.message || 'Camera permission denied or camera device unavailable.');
+        setCameraError(fbErr.message || 'Camera permission denied or camera device unavailable. Tap Start Camera to grant access.');
         setIsStreaming(false);
       }
     }
@@ -247,9 +256,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
         setMotionIntensity(motionResult.intensity);
 
         const now = Date.now();
-        if (now - lastTransmitRef.current > 450) {
+        if (now - lastTransmitRef.current > 350) {
           lastTransmitRef.current = now;
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.55);
+          setFramesTransmitted((prev) => prev + 1);
 
           globalStreamChannel.publishVideoFrame({
             cameraId: selectedSlot,
@@ -487,10 +497,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
         />
 
         {/* Live HUD Overlays */}
-        <div className="absolute top-3 left-3 flex flex-col gap-1.5 pointer-events-none">
-          <div className="bg-black/80 px-2 py-0.5 rounded-[2px] text-xs font-mono text-emerald-400 border border-emerald-500/40 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span>LIVE 720p HD</span>
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5 pointer-events-none z-20">
+          <div className="bg-black/85 px-2 py-0.5 rounded-[2px] text-xs font-mono text-emerald-400 border border-emerald-500/40 flex items-center gap-1.5 shadow-lg">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>LIVE TO VIEWER: {framesTransmitted > 0 ? `${framesTransmitted} frames sent` : 'Broadcasting...'}</span>
           </div>
           {nightVisionActive && (
             <div className="bg-indigo-950/80 border border-indigo-400/60 px-2 py-0.5 rounded-[2px] text-[10px] font-bold text-indigo-300 flex items-center gap-1">
@@ -513,15 +523,36 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
+        {/* Ready to Stream / User Gesture Activation Prompt */}
+        {!isStreaming && !cameraError && (
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center z-30 animate-in fade-in">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mb-3 animate-pulse">
+              <Camera className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black text-white">Camera Ready to Stream</h3>
+            <p className="text-xs text-slate-300 max-w-sm mt-1 leading-relaxed">
+              Tap below to turn on this phone's camera and broadcast live to your Viewer screen.
+            </p>
+            <button
+              id="start-camera-stream-btn"
+              type="button"
+              onClick={startCamera}
+              className="mt-4 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-black text-xs rounded-[2px] shadow-xl transition cursor-pointer"
+            >
+              START CAMERA STREAM
+            </button>
+          </div>
+        )}
+
         {/* Camera Error */}
         {cameraError && (
-          <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+          <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-30">
             <VideoOff className="w-12 h-12 text-red-400 mb-3" />
             <h3 className="text-lg font-bold text-white">Camera Access Blocked</h3>
             <p className="text-xs text-slate-400 max-w-sm mt-1">{cameraError}</p>
             <button
               onClick={startCamera}
-              className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs rounded-[2px]"
+              className="mt-4 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs rounded-[2px] transition"
             >
               Retry Camera
             </button>

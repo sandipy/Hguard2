@@ -18,7 +18,7 @@ import {
   Clock,
   ExternalLink,
 } from 'lucide-react';
-import { AppSettings, CameraSlot, VideoFramePacket } from '../types';
+import { AppSettings, CameraSlot, VideoFramePacket, CameraStatusBroadcast } from '../types';
 import { globalStreamChannel } from '../utils/streamChannel';
 import { globalHeartbeatService } from '../utils/heartbeatService';
 import { playRogerBeep, playSirenAlert, speakSeniorVoice } from '../utils/soundAlerts';
@@ -83,17 +83,28 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
   const [rebootingSlots, setRebootingSlots] = useState<CameraSlot[]>([]);
   const [wakeFeedback, setWakeFeedback] = useState<string | null>(null);
   const [showWakeBenefits, setShowWakeBenefits] = useState<boolean>(false);
+  const [relayConnected, setRelayConnected] = useState<boolean>(true);
+  const [relayRoom, setRelayRoom] = useState<string>('');
+
+  // Relay connection status listener
+  useEffect(() => {
+    const unsub = globalStreamChannel.onConnectionChange((state) => {
+      setRelayConnected(state.connected);
+      setRelayRoom(state.roomKey);
+    });
+    return () => unsub();
+  }, []);
 
   // Video Frame Packet subscription
   useEffect(() => {
-    const unsub = globalStreamChannel.onVideoFrame((packet: VideoFramePacket) => {
+    const unsubVideo = globalStreamChannel.onVideoFrame((packet: VideoFramePacket) => {
       if (!packet.cameraId) return;
       setCameras((prev) => ({
         ...prev,
         [packet.cameraId]: {
           ...prev[packet.cameraId],
           frameUrl: packet.frameDataUrl,
-          lastUpdated: packet.timestamp,
+          lastUpdated: packet.timestamp || Date.now(),
           isOnline: true,
           batteryLevel: packet.batteryLevel,
           motionScore: packet.motionScore,
@@ -101,25 +112,53 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
           thermalState: packet.thermalState,
         },
       }));
+      globalHeartbeatService.recordHeartbeat(packet.cameraId, packet.cameraName || `Camera ${packet.cameraId.slice(-1)}`);
     });
-    return () => unsub();
+
+    const unsubStatus = globalStreamChannel.onCameraStatus((status: CameraStatusBroadcast) => {
+      if (!status.cameraId) return;
+      setCameras((prev) => ({
+        ...prev,
+        [status.cameraId]: {
+          ...prev[status.cameraId],
+          frameUrl: status.currentFrame || prev[status.cameraId]?.frameUrl || null,
+          lastUpdated: status.timestamp || Date.now(),
+          isOnline: true,
+          batteryLevel: status.batteryLevel,
+          motionScore: status.motionScore,
+          isNightVision: !!status.isNightVision,
+          thermalState: status.thermalState,
+        },
+      }));
+      globalHeartbeatService.recordHeartbeat(status.cameraId, status.cameraName || `Camera ${status.cameraId.slice(-1)}`);
+    });
+
+    return () => {
+      unsubVideo();
+      unsubStatus();
+    };
   }, []);
 
-  // Heartbeat online status
+  // Heartbeat online status check (checks both recent frame arrival and heartbeat service)
   useEffect(() => {
     const interval = setInterval(() => {
       const heartbeats = globalHeartbeatService.getAllHeartbeatInfos();
+      const now = Date.now();
       setCameras((prev) => {
+        let changed = false;
         const next = { ...prev };
         (Object.keys(next) as CameraSlot[]).forEach((slot) => {
           const hb = heartbeats[slot];
-          if (hb) {
-            next[slot].isOnline = hb.status === 'online';
+          const hasRecentFrame = next[slot].lastUpdated > 0 && (now - next[slot].lastUpdated < 15000);
+          const shouldBeOnline = hasRecentFrame || (hb && hb.status === 'online');
+          if (next[slot].isOnline !== shouldBeOnline) {
+            next[slot] = { ...next[slot], isOnline: !!shouldBeOnline };
+            changed = true;
           }
         });
-        return next;
+        return changed ? next : prev;
       });
-    }, 2000);
+    }, 2500);
     return () => clearInterval(interval);
   }, []);
 
@@ -216,6 +255,13 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
 
         {/* Live Status and Pair Actions */}
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-[2px] border border-slate-800 text-xs">
+            <span className={`w-2 h-2 rounded-full ${relayConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="text-slate-300 font-mono text-[11px]">
+              {relayConnected ? (relayRoom ? `Relay: ${relayRoom.slice(-8)}` : 'Relay Active') : 'Reconnecting...'}
+            </span>
+          </div>
+
           <button
             id="monitor-heartbeat-status-badge"
             onClick={onOpenHeartbeatModal}

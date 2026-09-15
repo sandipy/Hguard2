@@ -20,6 +20,7 @@ interface PairingQRModalProps {
   userEmail: string;
   encryptionPin: string;
   initialCameraSlot?: CameraSlot;
+  householdRoomId?: string;
   onCameraPairedSuccess?: (slot: CameraSlot) => void;
 }
 
@@ -38,6 +39,7 @@ export const PairingQRModal: React.FC<PairingQRModalProps> = ({
   userEmail,
   encryptionPin,
   initialCameraSlot = 'cam1',
+  householdRoomId,
   onCameraPairedSuccess,
 }) => {
   const [selectedSlot, setSelectedSlot] = useState<CameraSlot>(initialCameraSlot);
@@ -55,11 +57,27 @@ export const PairingQRModal: React.FC<PairingQRModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    const origin = window.location.origin;
-    const pathname = window.location.pathname.replace(/\/$/, '');
-    const cleanBase = `${origin}${pathname}/`;
-    const emailQuery = userEmail ? `&user=${encodeURIComponent(userEmail)}` : '';
-    const url = `${cleanBase}?role=camera&autostart=1&cam=${selectedSlot}${emailQuery}&pin=${encodeURIComponent(encryptionPin || '8888')}&t=${Date.now()}`;
+    
+    // Construct ultra-reliable, clean base URL without double slashes
+    const currentOrigin = window.location.origin;
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    const baseUrl = `${currentOrigin}${currentPath}`;
+    const urlObj = new URL(baseUrl);
+    
+    urlObj.searchParams.set('role', 'camera');
+    urlObj.searchParams.set('autostart', '1');
+    urlObj.searchParams.set('cam', selectedSlot);
+    if (householdRoomId) {
+      urlObj.searchParams.set('room', householdRoomId);
+    }
+    if (encryptionPin) {
+      urlObj.searchParams.set('pin', encryptionPin);
+    }
+    if (userEmail) {
+      urlObj.searchParams.set('user', userEmail);
+    }
+    
+    const url = urlObj.toString();
     setPairingUrl(url);
 
     QRCode.toDataURL(url, {
@@ -77,11 +95,11 @@ export const PairingQRModal: React.FC<PairingQRModalProps> = ({
       .catch((err) => {
         console.error('Failed to generate pairing QR:', err);
       });
-  }, [isOpen, selectedSlot, userEmail, encryptionPin]);
+  }, [isOpen, selectedSlot, userEmail, encryptionPin, householdRoomId]);
 
   useEffect(() => {
     if (!isOpen) return;
-    const unsub = globalStreamChannel.onCameraStatus((status) => {
+    const unsubStatus = globalStreamChannel.onCameraStatus((status) => {
       if (status && status.cameraId === selectedSlot && status.isOnline) {
         setJustPaired(true);
         if (onCameraPairedSuccess) {
@@ -89,7 +107,20 @@ export const PairingQRModal: React.FC<PairingQRModalProps> = ({
         }
       }
     });
-    return () => unsub();
+
+    const unsubVideo = globalStreamChannel.onVideoFrame((packet) => {
+      if (packet && packet.cameraId === selectedSlot) {
+        setJustPaired(true);
+        if (onCameraPairedSuccess) {
+          onCameraPairedSuccess(selectedSlot);
+        }
+      }
+    });
+
+    return () => {
+      unsubStatus();
+      unsubVideo();
+    };
   }, [isOpen, selectedSlot, onCameraPairedSuccess]);
 
   if (!isOpen) return null;

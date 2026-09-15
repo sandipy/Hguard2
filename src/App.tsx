@@ -133,6 +133,24 @@ export default function App() {
   const [isPairingQROpen, setIsPairingQROpen] = useState(false);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
   const [targetPairingSlot, setTargetPairingSlot] = useState<CameraSlot>('cam1');
+  const [householdRoom, setHouseholdRoom] = useState<string>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get('room');
+      if (p) return p;
+      const saved = localStorage.getItem('hguard_household_room');
+      if (saved) return saved;
+      const gen = 'hg_' + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('hguard_household_room', gen);
+      return gen;
+    } catch {
+      return 'hg_home';
+    }
+  });
+
+  // Keep StreamChannel and MQTT topics synchronized whenever room, pin, or email changes
+  useEffect(() => {
+    globalStreamChannel.setIdentity(householdRoom, settings.encryptionPin, userProfile.email);
+  }, [householdRoom, settings.encryptionPin, userProfile.email]);
 
   // URL query parameter parsing on load
   useEffect(() => {
@@ -140,6 +158,14 @@ export default function App() {
     const pinParam = params.get('pin');
     const userParam = params.get('user');
     const camParam = params.get('cam');
+    const roomParam = params.get('room');
+
+    if (roomParam) {
+      setHouseholdRoom(roomParam);
+      try {
+        localStorage.setItem('hguard_household_room', roomParam);
+      } catch {}
+    }
     if (pinParam) {
       setSettings((prev) => ({ ...prev, encryptionPin: pinParam }));
     }
@@ -259,6 +285,7 @@ export default function App() {
         onClose={() => setIsShareOpen(false)}
         encryptionPin={settings.encryptionPin}
         userEmail={userProfile?.email || ''}
+        householdRoomId={householdRoom}
         onOpenPairingQR={handleOpenPairingQR}
       />
 
@@ -268,6 +295,7 @@ export default function App() {
         onClose={() => setIsPairingQROpen(false)}
         userEmail={userProfile?.email || ''}
         encryptionPin={settings.encryptionPin}
+        householdRoomId={householdRoom}
         initialCameraSlot={targetPairingSlot}
       />
 
@@ -276,6 +304,12 @@ export default function App() {
         isOpen={isQRScannerOpen}
         onClose={() => setIsQRScannerOpen(false)}
         onPairSuccess={(payload) => {
+          if (payload.room) {
+            setHouseholdRoom(payload.room);
+            try {
+              localStorage.setItem('hguard_household_room', payload.room);
+            } catch {}
+          }
           if (payload.pin) {
             handleUpdateSettings({ encryptionPin: payload.pin });
           }

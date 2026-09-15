@@ -11,11 +11,12 @@ import {
 import { CameraSlot } from '../types';
 import { playRogerBeep } from '../utils/soundAlerts';
 
-interface PairingPayload {
+export interface PairingPayload {
   email: string;
   pin: string;
   slot: CameraSlot;
   role: string;
+  room?: string;
 }
 
 interface PairingQRScannerModalProps {
@@ -112,12 +113,14 @@ export const PairingQRScannerModal: React.FC<PairingQRScannerModalProps> = ({
           const pin = url.searchParams.get('pin');
           const cam = url.searchParams.get('cam') as CameraSlot;
           const role = url.searchParams.get('role') || 'camera';
-          if (user || pin || cam) {
+          const room = url.searchParams.get('room');
+          if (user || pin || cam || room) {
             return {
               email: user ? decodeURIComponent(user) : '',
               pin: pin ? decodeURIComponent(pin) : '8888',
               slot: cam && ['cam1', 'cam2', 'cam3', 'cam4', 'cam5', 'cam6'].includes(cam) ? cam : 'cam1',
               role,
+              room: room ? decodeURIComponent(room) : undefined,
             };
           }
         }
