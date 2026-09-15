@@ -8,7 +8,7 @@
     "build": "vite build && cp dist/index.html dist/404.html 2>/dev/null || true",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
-    "deploy:cf": "npm run build && wrangler pages deploy dist --project-name=hguard2",
+    "deploy:cf": "npm run build && wrangler pages deploy dist --project-name=hguard",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
