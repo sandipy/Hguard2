@@ -34,3 +34,27 @@ npm run deploy
 ```
 
 This compiles the app into `dist/` and pushes it directly to the `gh-pages` branch.
+
+---
+
+## Deployment to Cloudflare Pages
+
+You can host HGuard on Cloudflare Pages (at `https://hguard2.pages.dev` or your custom domain) using either method below:
+
+### Method 1: Connect GitHub in Cloudflare Dashboard (Easiest, 1-Click)
+
+1. Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com/) and go to **Workers & Pages** > **Create application** > **Pages** > **Connect to Git**.
+2. Select your repository: `sandipy/hguard2`.
+3. In the Build settings:
+   - **Framework preset**: `Vite`
+   - **Build command**: `npm run build`
+   - **Build output directory**: `dist`
+4. Click **Save and Deploy**. Cloudflare will build the site and provide a free live URL (e.g. `https://hguard2.pages.dev`). Every future `git push` will deploy automatically!
+
+### Method 2: Deploy via Wrangler CLI
+
+```bash
+npm run deploy:cf
+```
+*(If prompted on your first run, Wrangler will open a browser to authenticate with your Cloudflare account).*
+

@@ -8,6 +8,7 @@
     "build": "vite build && cp dist/index.html dist/404.html 2>/dev/null || true",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
+    "deploy:cf": "npm run build && wrangler pages deploy dist --project-name=hguard2",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
@@ -37,6 +38,7 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "wrangler": "^4.131.2"
   }
 }
